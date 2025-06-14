@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP8266 Alarm Clock Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-96 text-center">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6">Alarm Clock Control</h1>
+
+        <div class="mb-4">
+            <label for="alarmTime" class="block text-gray-700 text-sm font-semibold mb-2">Set Alarm Time:</label>
+            <input type="time" id="alarmTime" name="alarmTime"
+                   class="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                   value=""
+            >
+        </div>
+
+        <button id="setAlarmBtn"
+                class="w-full py-3 px-6 rounded-lg text-white font-semibold transition duration-300 ease-in-out transform hover:scale-105 shadow-md
+                       bg-blue-500 hover:bg-blue-600"
+        >
+            Set Alarm
+        </button>
+
+        <button id="resetAlarmBtn"
+                class="w-full mt-3 py-3 px-6 rounded-lg text-white font-semibold transition duration-300 ease-in-out transform hover:scale-105 shadow-md
+                       bg-gray-500 hover:bg-gray-600"
+        >
+            Reset Alarm
+        </button>
+
+        <!-- New element for local, temporary messages -->
+        <p id="localMessage" class="mt-4 text-red-500 text-sm font-medium"></p>
+
+        <p id="statusMessage" class="mt-6 text-gray-700 text-base font-semibold">
+            Loading alarm status...
+        </p>
+        <p id="countdownMessage" class="mt-2 text-gray-600 text-sm">
+            Calculating time left...
+        </p>
+        <!-- Removed the Last UI Sync element -->
+
+    </div>
+
+    <script>
+        // JavaScript for frontend interaction
+        const alarmTimeInput = document.getElementById('alarmTime');
+        const setAlarmBtn = document.getElementById('setAlarmBtn');
+        const resetAlarmBtn = document.getElementById('resetAlarmBtn');
+        const localMessage = document.getElementById('localMessage'); // New element
+        const statusMessage = document.getElementById('statusMessage');
+        const countdownMessage = document.getElementById('countdownMessage');
+        // Removed lastUpdatedSpan constant
+
+        // IMPORTANT: Replace this with your Node.js server's URL.
+        // If running locally, it's typically http://localhost:3000
+        // If deployed, it will be your domain (e.g., https://your-node-app.onrender.com)
+        const BASE_URL = 'http://localhost:3000'; // <<< UPDATE THIS FOR DEPLOYMENT
+
+        let currentAlarmData = { active: false, alarm_time: '' }; // Initial state
+
+        // Function to calculate and display countdown
+        function updateCountdown() {
+            if (!currentAlarmData.active || !currentAlarmData.alarm_time) {
+                countdownMessage.textContent = '';
+                return;
+            }
+
+            const now = new Date();
+            const [alarmHour, alarmMinute] = currentAlarmData.alarm_time.split(':').map(Number);
+
+            let alarmDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), alarmHour, alarmMinute, 0, 0);
+
+            // If the alarm time has already passed today, set it for tomorrow
+            if (alarmDate.getTime() <= now.getTime()) {
+                alarmDate.setDate(alarmDate.getDate() + 1);
+            }
+
+            const timeLeftMillis = alarmDate.getTime() - now.getTime();
+
+            if (timeLeftMillis <= 0) {
+                countdownMessage.textContent = 'Alarm is ringing or about to ring!';
+                return;
+            }
+
+            const totalSeconds = Math.floor(timeLeftMillis / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+
+            countdownMessage.textContent = `Alarm rings in ${hours}h ${minutes}m ${seconds}s`;
+        }
+
+        // Function to update the UI based on alarm data from the server
+        function updateUI(data) {
+            currentAlarmData = data;
+
+            if (currentAlarmData.active) {
+                setAlarmBtn.textContent = 'Update Alarm';
+                setAlarmBtn.classList.remove('bg-blue-500', 'hover:bg-blue-600');
+                setAlarmBtn.classList.add('bg-orange-500', 'hover:bg-orange-600');
+                statusMessage.textContent = `Alarm is set for ${currentAlarmData.alarm_time}.`;
+            } else {
+                setAlarmBtn.textContent = 'Set Alarm';
+                setAlarmBtn.classList.remove('bg-orange-500', 'hover:bg-orange-600');
+                setAlarmBtn.classList.add('bg-blue-500', 'hover:bg-blue-600');
+                statusMessage.textContent = 'No alarm set.';
+            }
+            updateCountdown(); // Update countdown immediately
+            // Removed: lastUpdatedSpan.textContent = new Date().toLocaleTimeString();
+        }
+
+        // Helper function to show a local message temporarily
+        let localMessageTimeout;
+        function showLocalMessage(message, isError = false) {
+            clearTimeout(localMessageTimeout); // Clear any existing timeout
+            localMessage.textContent = message;
+            if (isError) {
+                localMessage.classList.add('text-red-500');
+                localMessage.classList.remove('text-green-500');
+            } else {
+                localMessage.classList.remove('text-red-500');
+                localMessage.classList.add('text-green-500'); // Optional: green for success
+            }
+            // Clear the message after a few seconds
+            localMessageTimeout = setTimeout(() => {
+                localMessage.textContent = '';
+                localMessage.classList.remove('text-red-500', 'text-green-500');
+            }, 3000); // Message disappears after 3 seconds
+        }
+
+        // Fetch initial data and periodically sync
+        async function fetchAlarmData() {
+            try {
+                const response = await fetch(`${BASE_URL}/api/status`);
+                const data = await response.json();
+                if (typeof data.active !== 'undefined' && typeof data.alarm_time !== 'undefined') {
+                    updateUI(data); // Update UI with latest data from server
+                    // Only update the time input field if it's currently empty
+                    // AND the server indicates an alarm is set.
+                    // This prevents overriding user input while they're typing.
+                    if (data.active && alarmTimeInput.value === '') {
+                        alarmTimeInput.value = data.alarm_time;
+                    }
+                    // If the alarm is inactive from the server (e.g., solved on device or reset)
+                    // then we should clear the input unless the user is actively typing in it.
+                    if (!data.active && document.activeElement !== alarmTimeInput) {
+                        alarmTimeInput.value = '';
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to sync alarm state:', error);
+                // Use localMessage for network errors
+                showLocalMessage('Network error: Could not reach server.', true);
+            }
+        }
+
+        // Event listener for Set Alarm button
+        setAlarmBtn.addEventListener('click', async () => {
+            const alarmTime = alarmTimeInput.value;
+            if (!alarmTime) {
+                showLocalMessage('Please select a time!', true); // Use localMessage
+                return;
+            }
+
+            showLocalMessage('Setting alarm...'); // Use localMessage
+            setAlarmBtn.disabled = true;
+            resetAlarmBtn.disabled = true;
+
+            try {
+                const response = await fetch(`${BASE_URL}/api/set-alarm`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ alarm_time: alarmTime }),
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    updateUI(data);
+                    alarmTimeInput.value = data.alarm_time; // Explicitly set after successful update
+                    showLocalMessage(data.message || 'Alarm set successfully!', false); // Use localMessage
+                } else {
+                    showLocalMessage('Error: ' + (data.message || 'Unknown error.'), true); // Use localMessage
+                }
+            } catch (error) {
+                showLocalMessage('Network error: Could not reach server.', true); // Use localMessage
+                console.error('Error:', error);
+            } finally {
+                setAlarmBtn.disabled = false;
+                resetAlarmBtn.disabled = false;
+            }
+        });
+
+        // Event listener for Reset Alarm button
+        resetAlarmBtn.addEventListener('click', async () => {
+            showLocalMessage('Resetting alarm...'); // Use localMessage
+            setAlarmBtn.disabled = true;
+            resetAlarmBtn.disabled = true;
+
+            try {
+                const response = await fetch(`${BASE_URL}/api/reset-alarm`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({}),
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    updateUI(data);
+                    alarmTimeInput.value = ''; // Explicitly clear after successful reset
+                    showLocalMessage(data.message || 'Alarm reset successfully.', false); // Use localMessage
+                } else {
+                    showLocalMessage('Error: ' + (data.message || 'Unknown error.'), true); // Use localMessage
+                }
+            } catch (error) {
+                showLocalMessage('Network error: Could not reach server.', true); // Use localMessage
+                console.error('Error:', error);
+            } finally {
+                setAlarmBtn.disabled = false;
+                resetAlarmBtn.disabled = false;
+            }
+        });
+
+        // Initial fetch when the page loads
+        document.addEventListener('DOMContentLoaded', async () => {
+            await fetchAlarmData(); // Fetch and update UI with current data
+            // After initial fetch and UI update, ensure input reflects the loaded data
+            // Only set if an alarm is active (to avoid clearing a user's manual entry)
+            if (currentAlarmData.active) {
+                alarmTimeInput.value = currentAlarmData.alarm_time;
+            }
+        });
+
+        // Periodically poll the server and update countdown
+        setInterval(fetchAlarmData, 1000); // Poll every 1 second for smoother countdown
+    </script>
+</body>
+</html>
