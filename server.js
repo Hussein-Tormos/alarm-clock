@@ -1,79 +1,84 @@
 // server.js
 const express = require('express');
-const mysql = require('mysql2/promise'); // Using promise-based version for async/await
-const cors = require('cors'); // For handling Cross-Origin Resource Sharing (important for ESP8266)
-const path = require('path'); // Node.js path module for serving static files
+const { Pool } = require('pg'); // Changed from mysql2 to pg
+const cors = require('cors');
+const path = require('path');
 
 const app = express();
-const port = process.env.PORT || 3000; // Use port 3000 by default, or process.env.PORT for hosting
+const port = process.env.DB_PORT || 3000;
 
 // --- Database Connection Configuration ---
-// IMPORTANT: Replace these with your actual database credentials
-const dbConfig = {
-    host: 'localhost', // Your MySQL host (e.g., 'localhost' or a specific IP/hostname)
-    user: 'your_db_username', // Your MySQL username
-    password: 'your_db_password', // Your MySQL password
-    database: 'your_db_name',     // Your database name
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
-};
+// IMPORTANT: Render provides a DATABASE_URL environment variable for PostgreSQL.
+// Use this for deployed environments. For local development, you'll need a local PostgreSQL setup
+// or just use different credentials here.
+// The structure will typically be: postgres://user:password@host:port/database
+const DATABASE_URL = process.env.DATABASE_URL
 
 let pool; // Connection pool for efficient database connections
 
 async function initializeDatabase() {
     try {
-        pool = mysql.createPool(dbConfig);
-        console.log('MySQL connection pool created.');
+        // For Render, DATABASE_URL will include SSL parameters automatically.
+        // For local development, you might need to adjust based on your local PostgreSQL setup.
+        pool = new Pool({
+            connectionString: DATABASE_URL,
+            // If connecting to Render from local machine (for testing), you might need SSL options:
+            // ssl: {
+            //     rejectUnauthorized: false // Use this if you get self-signed certificate errors during local testing with Render's external URL
+            // }
+        });
 
-        // Test connection and ensure table exists
-        const connection = await pool.getConnection();
-        await connection.query(`
+        await pool.connect(); // Test the connection
+
+        console.log('PostgreSQL connection pool created and connected.');
+
+        // Ensure table exists
+        await pool.query(`
             CREATE TABLE IF NOT EXISTS alarm_settings (
-                id INT(11) AUTO_INCREMENT PRIMARY KEY,
+                id SERIAL PRIMARY KEY, -- SERIAL for auto-increment in PostgreSQL
                 active BOOLEAN NOT NULL DEFAULT FALSE,
                 alarm_time VARCHAR(5) NOT NULL DEFAULT '',
-                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        // Note: ON UPDATE CURRENT_TIMESTAMP is a MySQLism. PostgreSQL handles this differently,
+        // often through triggers or by simply updating the column manually.
+        // For simplicity, we'll omit auto-update on last_updated for now,
+        // or you could update it manually with NOW() in setAlarmData if needed.
+
         // Check if there's an initial row, if not, insert one
-        const [rows] = await connection.query("SELECT COUNT(*) AS count FROM alarm_settings");
-        if (rows[0].count === 0) {
-            await connection.query("INSERT INTO alarm_settings (active, alarm_time) VALUES (FALSE, '')");
+        const res = await pool.query("SELECT COUNT(*) AS count FROM alarm_settings");
+        if (res.rows[0].count === '0') { // count comes as string
+            await pool.query("INSERT INTO alarm_settings (active, alarm_time) VALUES (FALSE, '')");
             console.log('Initial alarm_settings row inserted.');
         }
-        connection.release(); // Release the connection back to the pool
         console.log('Database table "alarm_settings" checked/created and initialized.');
     } catch (err) {
-        console.error('Failed to connect to MySQL or create table:', err);
+        console.error('Failed to connect to PostgreSQL or create table:', err);
         // Exit process if database connection fails on startup
         process.exit(1);
     }
 }
 
 // --- Middleware ---
-app.use(express.json()); // To parse JSON request bodies
-app.use(express.urlencoded({ extended: true })); // To parse URL-encoded request bodies (for form-like data)
-app.use(cors()); // Enable CORS for all routes (important for ESP8266 and potentially different frontend domains)
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cors());
 
 // Serve static files from the 'public' directory
-// Create a 'public' folder in the same directory as server.js
-// and put index.html inside it.
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- API Endpoints ---
 
 // API endpoint to get current alarm data
-// Used by both frontend (AJAX) and ESP8266 (GET)
 app.get('/api/status', async (req, res) => {
     try {
-        const [rows] = await pool.query("SELECT active, alarm_time FROM alarm_settings WHERE id = 1 LIMIT 1");
-        if (rows.length > 0) {
-            const data = rows[0];
-            data.active = Boolean(data.active); // Convert TINYINT(1) to boolean
+        const result = await pool.query("SELECT active, alarm_time FROM alarm_settings WHERE id = 1 LIMIT 1");
+        if (result.rows.length > 0) {
+            const data = result.rows[0];
+            // PostgreSQL's boolean type maps directly to JavaScript boolean
             res.json(data);
         } else {
-            // Should not happen if initial row is always inserted
             res.json({ active: false, alarm_time: '' });
         }
     } catch (err) {
@@ -86,13 +91,13 @@ app.get('/api/status', async (req, res) => {
 app.post('/api/set-alarm', async (req, res) => {
     const { alarm_time } = req.body;
 
-    // Basic validation for HH:MM format
     if (!alarm_time || !/^([01]\d|2[0-3]):([0-5]\d)$/.test(alarm_time)) {
         return res.status(400).json({ success: false, message: 'Invalid alarm time format. Use HH:MM.' });
     }
 
     try {
-        await pool.query("UPDATE alarm_settings SET active = ?, alarm_time = ? WHERE id = 1", [true, alarm_time]);
+        // Use $1, $2 for parameterized queries in pg
+        await pool.query("UPDATE alarm_settings SET active = $1, alarm_time = $2, last_updated = NOW() WHERE id = 1", [true, alarm_time]);
         res.json({ success: true, active: true, alarm_time: alarm_time, message: 'Alarm set successfully!' });
     } catch (err) {
         console.error('Error setting alarm:', err);
@@ -103,7 +108,7 @@ app.post('/api/set-alarm', async (req, res) => {
 // API endpoint to reset alarm (used by frontend POST)
 app.post('/api/reset-alarm', async (req, res) => {
     try {
-        await pool.query("UPDATE alarm_settings SET active = ?, alarm_time = ? WHERE id = 1", [false, '']);
+        await pool.query("UPDATE alarm_settings SET active = $1, alarm_time = $2, last_updated = NOW() WHERE id = 1", [false, '']);
         res.json({ success: true, active: false, alarm_time: '', message: 'Alarm reset successfully.' });
     } catch (err) {
         console.error('Error resetting alarm:', err);
@@ -114,11 +119,8 @@ app.post('/api/reset-alarm', async (req, res) => {
 // API endpoint for ESP8266 to signal alarm stopped (POST)
 app.post('/api/alarm-stopped', async (req, res) => {
     try {
-        // Get current alarm_time before deactivating, to keep it stored
-        const [currentRows] = await pool.query("SELECT alarm_time FROM alarm_settings WHERE id = 1 LIMIT 1");
-        const currentAlarmTime = currentRows.length > 0 ? currentRows[0].alarm_time : '';
-
-        await pool.query("UPDATE alarm_settings SET active = ? WHERE id = 1", [false]);
+        // No need to get current alarm_time before deactivating, as we just set active to false
+        await pool.query("UPDATE alarm_settings SET active = $1, last_updated = NOW() WHERE id = 1", [false]);
         res.json({ success: true, message: 'Alarm stopped by device.' });
     } catch (err) {
         console.error('Error handling alarm stopped signal:', err);
@@ -128,9 +130,9 @@ app.post('/api/alarm-stopped', async (req, res) => {
 
 // --- Start Server ---
 async function startServer() {
-    await initializeDatabase(); // Ensure DB is ready before starting server
+    await initializeDatabase();
     app.listen(port, () => {
-        console.log(`Node.js server listening at http://localhost:${port}`);
+        console.log(`Node.js server listening on port ${port}`);
     });
 }
 
