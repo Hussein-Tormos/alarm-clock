@@ -3,51 +3,80 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ESP8266 Alarm Clock Control</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Alarm Clock</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
+      rel="stylesheet"
+    />
     <style>
+      /* Your custom CSS styles go here */
       body {
-        font-family: "Inter", sans-serif;
+        font-family: Arial, sans-serif;
         background-color: #f0f2f5;
+        color: #333;
       }
-      /* Add some basic styling for alarm items if needed */
+      .container {
+        max-width: 600px;
+        margin: 50px auto;
+        padding: 30px;
+        background-color: #fff;
+        border-radius: 12px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+      }
       .alarm-item {
-        border: 1px solid #e2e8f0;
-        padding: 1rem;
-        margin-bottom: 1rem;
-        border-radius: 0.5rem;
-        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        background-color: #f9f9f9;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+      }
+      button {
+        cursor: pointer;
+      }
+      input[type="time"],
+      select {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%234a4a4a'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 0.75rem center;
+        background-size: 1rem;
+        padding-right: 2.5rem;
       }
     </style>
   </head>
-  <body class="flex items-center justify-center min-h-screen">
-    <div class="bg-white p-8 rounded-lg shadow-xl w-96 text-center">
-      <h1 class="text-3xl font-bold text-gray-800 mb-6">Alarm Clock Control</h1>
+  <body class="bg-gray-100 flex items-center justify-center min-h-screen">
+    <div class="container bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+      <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">
+        Smart Alarm
+      </h1>
+
+      <div
+        id="globalStatus"
+        class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-center"
+      >
+        <p id="globalStatusMessage" class="text-lg font-semibold text-blue-800">
+          Loading alarms...
+        </p>
+        <p id="globalCountdownMessage" class="text-md text-blue-600 mt-1"></p>
+      </div>
 
       <div id="alarmsContainer">
-        <p class="text-gray-500 mb-4" id="noAlarmsMessage">
-          No alarms set yet. Click "Add New Alarm" to get started!
+        <p id="noAlarmsMessage" class="text-gray-500 text-center py-4 hidden">
+          No alarms set yet. Click "Add New Alarm" to create one!
         </p>
       </div>
 
       <button
         id="addNewAlarmBtn"
-        class="w-full py-3 px-6 rounded-lg text-white font-semibold transition duration-300 ease-in-out transform hover:scale-105 shadow-md bg-green-500 hover:bg-green-600 mt-4"
+        class="w-full mt-6 py-3 px-6 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-300 ease-in-out transform hover:scale-105"
       >
         Add New Alarm
       </button>
 
-      <p id="localMessage" class="mt-4 text-red-500 text-sm font-medium"></p>
-
-      <p
-        id="globalStatusMessage"
-        class="mt-6 text-gray-700 text-base font-semibold"
-      >
-        Loading alarm status...
-      </p>
-      <p id="globalCountdownMessage" class="mt-2 text-gray-600 text-sm">
-        Calculating time left for next alarm...
-      </p>
+      <p id="localMessage" class="mt-4 text-center text-sm font-medium"></p>
     </div>
 
     <script>
@@ -62,7 +91,6 @@
       );
       const noAlarmsMessage = document.getElementById("noAlarmsMessage");
 
-      // IMPORTANT: Replace this with your Node.js server's URL.
       const BASE_URL = "https://alarm-clock-o9w0.onrender.com"; // <<< UPDATE THIS FOR DEPLOYMENT
 
       let currentAlarmsData = []; // Array to hold all alarm objects
@@ -70,19 +98,43 @@
       // Helper function to generate timezone options
       function getTimezoneOptions(selectedValue = 3) {
         let options = "";
-        for (let i = -12; i <= 12; i++) {
-          let value = i;
-          let label = `(GMT ${i >= 0 ? "+" : ""}${i}:00)`;
-          if (i === 5.5) {
-            // Add specific 5.5 hour option if needed
-            value = 5.5;
-            label = "(GMT +05:30)";
-          }
-          options += `<option value="${value}" ${
-            selectedValue === value ? "selected" : ""
-          }>${label}</option>`;
-        }
-        return options;
+        const timezones = [
+          { value: -12, label: "(GMT -12:00)" },
+          { value: -11, label: "(GMT -11:00)" },
+          { value: -10, label: "(GMT -10:00)" },
+          { value: -9, label: "(GMT -09:00)" },
+          { value: -8, label: "(GMT -08:00)" },
+          { value: -7, label: "(GMT -07:00)" },
+          { value: -6, label: "(GMT -06:00)" },
+          { value: -5, label: "(GMT -05:00)" },
+          { value: -4, label: "(GMT -04:00)" },
+          { value: -3, label: "(GMT -03:00)" },
+          { value: -2, label: "(GMT -02:00)" },
+          { value: -1, label: "(GMT -01:00)" },
+          { value: 0, label: "(GMT +00:00)" },
+          { value: 1, label: "(GMT +01:00)" },
+          { value: 2, label: "(GMT +02:00)" },
+          { value: 3, label: "(GMT +03:00)" },
+          { value: 4, label: "(GMT +04:00)" },
+          { value: 5, label: "(GMT +05:00)" },
+          { value: 5.5, label: "(GMT +05:30)" }, // Specific entry for 5.5
+          { value: 6, label: "(GMT +06:00)" },
+          { value: 7, label: "(GMT +07:00)" },
+          { value: 8, label: "(GMT +08:00)" },
+          { value: 9, label: "(GMT +09:00)" },
+          { value: 10, label: "(GMT +10:00)" },
+          { value: 11, label: "(GMT +11:00)" },
+          { value: 12, label: "(GMT +12:00)" },
+        ];
+
+        return timezones
+          .map(
+            (tz) =>
+              `<option value="${tz.value}" ${
+                selectedValue === tz.value ? "selected" : ""
+              }>${tz.label}</option>`
+          )
+          .join("");
       }
 
       // Function to render a single alarm item
@@ -92,68 +144,64 @@
         alarmDiv.dataset.id = alarm.id || `new-${index}`; // Use a unique ID for each alarm
 
         alarmDiv.innerHTML = `
-          <div class="mb-4">
-            <label for="alarmTime-${
-              alarmDiv.dataset.id
-            }" class="block text-gray-700 text-sm font-semibold mb-2">
-              Alarm Time:
-            </label>
-            <input
-              type="time"
-              id="alarmTime-${alarmDiv.dataset.id}"
-              name="alarmTime-${alarmDiv.dataset.id}"
-              class="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value="${alarm.alarm_time || ""}"
-            />
-          </div>
+      <div class="mb-4">
+        <label for="alarmTime-${
+          alarmDiv.dataset.id
+        }" class="block text-gray-700 text-sm font-semibold mb-2">
+          Alarm Time:
+        </label>
+        <input
+          type="time"
+          id="alarmTime-${alarmDiv.dataset.id}"
+          name="alarmTime-${alarmDiv.dataset.id}"
+          class="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          value="${alarm.alarm_time || ""}"
+        />
+      </div>
 
-          <div class="mb-4">
-            <label for="timezoneOffset-${
-              alarmDiv.dataset.id
-            }" class="block text-gray-700 text-sm font-semibold mb-2">
-              Select Timezone:
-            </label>
-            <select
-              id="timezoneOffset-${alarmDiv.dataset.id}"
-              class="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              ${getTimezoneOptions(alarm.timezone)}
-            </select>
-          </div>
+      <div class="mb-4">
+        <label for="timezoneOffset-${
+          alarmDiv.dataset.id
+        }" class="block text-gray-700 text-sm font-semibold mb-2">
+          Select Timezone:
+        </label>
+        <select
+          id="timezoneOffset-${alarmDiv.dataset.id}"
+          class="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          ${getTimezoneOptions(alarm.timezone)}
+        </select>
+      </div>
 
-          <button
-            id="setAlarmBtn-${alarmDiv.dataset.id}"
-            class="w-full py-3 px-6 rounded-lg text-white font-semibold transition duration-300 ease-in-out transform hover:scale-105 shadow-md ${
-              alarm.active
-                ? "bg-orange-500 hover:bg-orange-600"
-                : "bg-blue-500 hover:bg-blue-600"
-            }"
-          >
-            ${alarm.active ? "Update Alarm" : "Set Alarm"}
-          </button>
+      <button
+        id="setAlarmBtn-${alarmDiv.dataset.id}"
+        class="w-full py-3 px-6 rounded-lg text-white font-semibold transition duration-300 ease-in-out transform hover:scale-105 shadow-md ${
+          alarm.active
+            ? "bg-purple-500 hover:bg-orange-600"
+            : "bg-blue-500 hover:bg-blue-600"
+        }"
+      >
+        ${alarm.active ? "Update Alarm" : "Set Alarm"}
+      </button>
 
-          <button
-            id="deleteAlarmBtn-${alarmDiv.dataset.id}"
-            class="w-full mt-3 py-3 px-6 rounded-lg text-white font-semibold transition duration-300 ease-in-out transform hover:scale-105 shadow-md bg-red-500 hover:bg-red-600"
-          >
-            Delete Alarm
-          </button>
+      <button
+        id="deleteAlarmBtn-${alarmDiv.dataset.id}"
+        class="w-full mt-3 py-3 px-6 rounded-lg text-white font-semibold transition duration-300 ease-in-out transform hover:scale-105 shadow-md bg-red-500 hover:bg-red-600"
+      >
+        Delete Alarm
+      </button>
 
-          <p id="alarmStatus-${
-            alarmDiv.dataset.id
-          }" class="mt-4 text-gray-700 text-base font-semibold">
-            ${
-              alarm.active
-                ? `Alarm set for ${alarm.alarm_time}.`
-                : "No alarm set."
-            }
-          </p>
-          <p id="alarmCountdown-${
-            alarmDiv.dataset.id
-          }" class="mt-2 text-gray-600 text-sm">
-            ${alarm.active ? "Calculating time left..." : ""}
-          </p>
-        `;
+      <p id="alarmStatus-${
+        alarmDiv.dataset.id
+      }" class="mt-4 text-gray-700 text-base font-semibold">
+        ${alarm.active ? `Alarm set for ${alarm.alarm_time}.` : "No alarm set."}
+      </p>
+      <p id="alarmCountdown-${
+        alarmDiv.dataset.id
+      }" class="mt-2 text-gray-600 text-sm">
+        ${alarm.active ? "Calculating time left..." : ""}
+      </p>
+    `;
 
         // Attach event listeners
         const setAlarmBtn = alarmDiv.querySelector(
@@ -184,26 +232,89 @@
       }
 
       // Function to render all alarms
+      // Modified to NOT clear user input on active elements
       function renderAlarms() {
-        alarmsContainer.innerHTML = ""; // Clear existing alarms
+        const activeElementId = document.activeElement
+          ? document.activeElement.id
+          : null;
+        const tempAlarmsContainer = document.createDocumentFragment();
+
         if (currentAlarmsData.length === 0) {
           noAlarmsMessage.style.display = "block";
         } else {
           noAlarmsMessage.style.display = "none";
           currentAlarmsData.forEach((alarm, index) => {
-            alarmsContainer.appendChild(renderAlarmItem(alarm, index));
+            const existingDiv = alarmsContainer.querySelector(
+              `[data-id="${alarm.id || `new-${index}`}"]`
+            );
+            if (existingDiv) {
+              // If alarm div already exists, reuse it and update content
+              // This prevents re-creating the input and losing focus/value
+              const newAlarmDiv = renderAlarmItem(alarm, index); // Render new version
+              // Copy values from the old input fields to the new ones before replacing
+              const oldAlarmTimeInput = existingDiv.querySelector(
+                `#alarmTime-${alarm.id || `new-${index}`}`
+              );
+              const oldTimezoneOffsetSelect = existingDiv.querySelector(
+                `#timezoneOffset-${alarm.id || `new-${index}`}`
+              );
+
+              if (
+                oldAlarmTimeInput &&
+                document.activeElement === oldAlarmTimeInput
+              ) {
+                newAlarmDiv.querySelector(
+                  `#alarmTime-${alarm.id || `new-${index}`}`
+                ).value = oldAlarmTimeInput.value;
+              } else {
+                newAlarmDiv.querySelector(
+                  `#alarmTime-${alarm.id || `new-${index}`}`
+                ).value = alarm.alarm_time || "";
+              }
+              newAlarmDiv.querySelector(
+                `#timezoneOffset-${alarm.id || `new-${index}`}`
+              ).value = oldTimezoneOffsetSelect
+                ? oldTimezoneOffsetSelect.value
+                : alarm.timezone;
+
+              existingDiv.replaceWith(newAlarmDiv); // Replace the old div with the new one
+            } else {
+              tempAlarmsContainer.appendChild(renderAlarmItem(alarm, index));
+            }
           });
+        }
+        alarmsContainer.appendChild(tempAlarmsContainer); // Add new alarms
+        // Remove alarms that are no longer in currentAlarmsData (e.g., deleted on another client)
+        Array.from(alarmsContainer.children).forEach((child) => {
+          if (
+            child.classList.contains("alarm-item") &&
+            !currentAlarmsData.some(
+              (a) => String(a.id) === String(child.dataset.id)
+            )
+          ) {
+            child.remove();
+          }
+        });
+
+        // Re-focus the element if it was active
+        if (activeElementId && document.getElementById(activeElementId)) {
+          document.getElementById(activeElementId).focus();
         }
       }
 
       // Function to calculate and display countdown for a specific alarm
-      function updateSingleAlarmCountdown(alarmId) {
-        const alarm = currentAlarmsData.find((a) => a.id === alarmId);
-        if (!alarm || !alarm.active || !alarm.alarm_time) {
-          const countdownElement = document.getElementById(
-            `alarmCountdown-${alarmId}`
-          );
-          if (countdownElement) countdownElement.textContent = "";
+      function updateSingleAlarmCountdown(alarm) {
+        const countdownElement = document.getElementById(
+          `alarmCountdown-${alarm.id}`
+        );
+        const statusElement = document.getElementById(
+          `alarmStatus-${alarm.id}`
+        );
+        if (!countdownElement || !statusElement) return; // Element might not be rendered yet or already removed
+
+        if (!alarm.active || !alarm.alarm_time) {
+          countdownElement.textContent = "";
+          statusElement.textContent = "No alarm set.";
           return;
         }
 
@@ -228,13 +339,10 @@
         }
 
         const timeLeftMillis = alarmDate.getTime() - now.getTime();
-        const countdownElement = document.getElementById(
-          `alarmCountdown-${alarmId}`
-        );
 
         if (timeLeftMillis <= 0) {
-          if (countdownElement)
-            countdownElement.textContent = "Alarm is ringing or about to ring!";
+          countdownElement.textContent = "Alarm is ringing or about to ring!";
+          statusElement.textContent = `Alarm set for ${alarm.alarm_time}.`; // Still show time even if ringing
           return;
         }
 
@@ -243,8 +351,16 @@
         const minutes = Math.floor((totalSeconds % 3600) / 60);
         const seconds = totalSeconds % 60;
 
-        if (countdownElement)
-          countdownElement.textContent = `Alarm rings in ${hours}h ${minutes}m ${seconds}s`;
+        countdownElement.textContent = `Alarm rings in ${hours}h ${minutes}m ${seconds}s`;
+        statusElement.textContent = `Alarm set for ${alarm.alarm_time}.`;
+      }
+
+      // Function to update all individual alarm countdowns
+      function updateAllCountdowns() {
+        currentAlarmsData.forEach((alarm) => {
+          updateSingleAlarmCountdown(alarm);
+        });
+        updateGlobalStatusAndCountdown(); // Also update global status/countdown
       }
 
       // Function to update global status and countdown (e.g., for the next active alarm)
@@ -293,8 +409,19 @@
 
         const nextAlarm = activeAlarms[0];
         globalStatusMessage.textContent = `Next alarm set for ${nextAlarm.alarm_time}.`;
-        updateSingleAlarmCountdown(nextAlarm.id); // Re-use the single alarm countdown logic
-        // Note: globalCountdownMessage will be updated by setInterval calling updateCountdown for all.
+
+        // This logic is duplicated with updateSingleAlarmCountdown.
+        // To avoid re-calculating, we can just grab the value from the individual alarm's countdown element
+        const nextAlarmCountdownElement = document.getElementById(
+          `alarmCountdown-${nextAlarm.id}`
+        );
+        if (nextAlarmCountdownElement) {
+          globalCountdownMessage.textContent =
+            nextAlarmCountdownElement.textContent;
+        } else {
+          globalCountdownMessage.textContent =
+            "Calculating time left for next alarm...";
+        }
       }
 
       // Helper function to show a local message temporarily
@@ -315,18 +442,15 @@
         }, 3000);
       }
 
-      // Fetch initial data and periodically sync
+      // Fetch all alarm data from the server
       async function fetchAlarmData() {
         try {
-          const response = await fetch(`${BASE_URL}/api/alarms`); // Assuming new endpoint for multiple alarms
+          const response = await fetch(`${BASE_URL}/api/alarms`);
           const data = await response.json();
           if (Array.isArray(data)) {
             currentAlarmsData = data;
-            renderAlarms(); // Re-render all alarms
-            updateGlobalStatusAndCountdown(); // Update global status messages
-            currentAlarmsData.forEach((alarm) =>
-              updateSingleAlarmCountdown(alarm.id)
-            );
+            renderAlarms(); // Re-render all alarms based on server data
+            updateAllCountdowns(); // Update all countdowns immediately after fetching fresh data
           } else {
             console.error("Expected an array of alarms, but received:", data);
             showLocalMessage("Server data format error.", true);
@@ -339,7 +463,7 @@
 
       // Event listener for Add New Alarm button
       addNewAlarmBtn.addEventListener("click", () => {
-        // Add a new "placeholder" alarm object to the array
+        // Add a new "placeholder" alarm object to the array locally
         const newAlarmId = `new-${Date.now()}`; // Temporary ID for new unsaved alarm
         currentAlarmsData.push({
           id: newAlarmId,
@@ -348,7 +472,14 @@
           timezone: 3,
         });
         renderAlarms(); // Re-render to show the new alarm input fields
-        // Scroll to the new alarm? Maybe later.
+        // Optional: scroll to the newly added alarm
+        const newAlarmElement = document.querySelector(
+          `[data-id="${newAlarmId}"]`
+        );
+        if (newAlarmElement) {
+          newAlarmElement.scrollIntoView({ behavior: "smooth", block: "end" });
+          newAlarmElement.querySelector('input[type="time"]').focus(); // Focus the time input
+        }
       });
 
       // Function to handle setting/updating an alarm
@@ -369,11 +500,10 @@
 
         try {
           const response = await fetch(`${BASE_URL}/api/set-alarm`, {
-            // Assuming this endpoint can handle ID for updates
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              id: alarmId.startsWith("new-") ? null : alarmId, // Send null for new alarms, actual ID for existing
+              id: String(alarmId).startsWith("new-") ? null : alarmId, // Send null for new alarms, actual ID for existing
               alarm_time: alarmTime,
               timezone: timezoneOffset,
             }),
@@ -382,15 +512,8 @@
           const data = await response.json();
 
           if (data.success) {
-            // Find and update the specific alarm in our local array
-            const index = currentAlarmsData.findIndex((a) => a.id === alarmId);
-            if (index !== -1) {
-              currentAlarmsData[index] = data.alarm; // Assuming API returns the updated alarm object
-            } else if (data.alarm && data.alarm.id) {
-              // If it was a new alarm, add it with its server-assigned ID
-              currentAlarmsData.push(data.alarm);
-            }
-            renderAlarms(); // Re-render to reflect changes
+            // Re-fetch all data to ensure local state is perfectly synced with server
+            await fetchAlarmData();
             showLocalMessage(data.message || "Alarm set successfully!");
           } else {
             showLocalMessage(
@@ -419,29 +542,30 @@
         showLocalMessage("Deleting alarm...");
 
         // If it's a new, unsaved alarm, just remove it from the UI
-        if (alarmId.startsWith("new-")) {
+        if (String(alarmId).startsWith("new-")) {
+          // Ensure comparison is safe
           currentAlarmsData = currentAlarmsData.filter(
-            (alarm) => alarm.id !== alarmId
+            (alarm) => String(alarm.id) !== String(alarmId)
           );
           renderAlarms();
+          updateAllCountdowns(); // Update global status and countdown after local change
           showLocalMessage("New alarm discarded.");
+          if (setAlarmBtn) setAlarmBtn.disabled = false; // Re-enable for other buttons
+          if (deleteAlarmBtn) deleteAlarmBtn.disabled = false;
           return;
         }
 
         try {
           const response = await fetch(`${BASE_URL}/api/delete-alarm`, {
-            // New endpoint for deleting
-            method: "POST",
+            method: "POST", // Using POST as per your server.js, DELETE is semantically better but POST works.
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id: alarmId }),
           });
           const data = await response.json();
 
           if (data.success) {
-            currentAlarmsData = currentAlarmsData.filter(
-              (alarm) => alarm.id !== alarmId
-            );
-            renderAlarms();
+            // Re-fetch all data to ensure local state is perfectly synced with server
+            await fetchAlarmData();
             showLocalMessage(data.message || "Alarm deleted successfully.");
           } else {
             showLocalMessage(
@@ -461,12 +585,12 @@
       // Initial fetch when the page loads
       document.addEventListener("DOMContentLoaded", fetchAlarmData);
 
-      // Periodically poll the server and update countdowns
-      setInterval(() => {
-        fetchAlarmData(); // Re-fetch all data to ensure sync
-        // No need to call updateSingleAlarmCountdown here explicitly, fetchAlarmData will re-render
-        // and update functions will be called on rendered elements.
-      }, 1000);
+      // Periodically poll the server (less frequently) to sync state
+      // And update countdowns more frequently using local data
+      setInterval(fetchAlarmData, 10000); // Poll server every 10 seconds
+
+      // Update countdowns every second using the already fetched currentAlarmsData
+      setInterval(updateAllCountdowns, 1000);
     </script>
   </body>
 </html>
