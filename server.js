@@ -16,37 +16,20 @@ async function initializeDatabase() {
     await pool.connect();
     console.log("PostgreSQL connected.");
 
-    // First, ensure the table exists
+    // IMPORTANT: Added 'timezone' column to the table.
+    // If you already have the table created, you'll need to run an ALTER TABLE statement manually:
+    // ALTER TABLE alarm_settings ADD COLUMN timezone REAL NOT NULL DEFAULT 0;
+    // Or drop the table and let it recreate for development: DROP TABLE IF EXISTS alarm_settings;
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS alarm_settings (
-        id SERIAL PRIMARY KEY,
-        alarm_time VARCHAR(5) NOT NULL,
-        active BOOLEAN NOT NULL DEFAULT TRUE,
-        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log("alarm_settings table ensured.");
-
-    // NOW, ADD THE ALTER TABLE STATEMENT TO ADD THE COLUMN
-    // This will attempt to add the column only if it doesn't exist.
-    // Be careful: running this repeatedly might throw errors if the column already exists
-    // unless you add checks for existence (more complex SQL).
-    try {
-        await pool.query(`
-            ALTER TABLE alarm_settings
-            ADD COLUMN timezone REAL NOT NULL DEFAULT 0;
+            CREATE TABLE IF NOT EXISTS alarm_settings (
+                id SERIAL PRIMARY KEY,
+                alarm_time VARCHAR(5) NOT NULL,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                timezone REAL NOT NULL DEFAULT 0, -- Added timezone column (e.g., -5, 3, 5.5)
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
         `);
-        console.log("timezone column added to alarm_settings table.");
-    } catch (alterErr) {
-        // This error will typically happen if the column already exists.
-        // You can log it but allow the app to continue.
-        if (alterErr.code === '42P07' || alterErr.message.includes('already exists')) { // 42P07 is duplicate_column
-            console.log("timezone column already exists, skipping ALTER TABLE.");
-        } else {
-            console.warn("Could not add timezone column (might already exist):", alterErr.message);
-        }
-    }
-
+    console.log("alarm_settings table ensured with timezone column.");
   } catch (err) {
     console.error("Database init error:", err);
     process.exit(1);
