@@ -1,13 +1,18 @@
-// server.js
 const express = require("express");
 const { Pool } = require("pg");
 const cors = require("cors");
 const path = require("path");
 
 const app = express();
-const port = process.env.DB_PORT || 3000;
+const port = process.env.DB_PORT  3000;
 
 const DATABASE_URL = process.env.DATABASE_URL;
+
+// Ensure DATABASE_URL is set
+if (!DATABASE_URL) {
+  console.error("DATABASE_URL environment variable is not set. Please set it before starting the server.");
+  process.exit(1);
+}
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
@@ -40,12 +45,19 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 // Assuming your frontend HTML file is in a 'public' directory
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "public"))); 
+
+// --- NEW: Health check / Status endpoint ---
+app.get("/api/status", (req, res) => {
+  // You can add more detailed status checks here, e.g., check database connection
+  // For now, we'll just return a simple 'ok' status
+  res.status(200).json({ status: "ok", message: "Server is running smoothly!" });
+});
+
 
 // --- API ROUTES ---
 
 // Get all active alarms
-// Modified: Now returns all active alarms with their timezone
 app.get("/api/alarms", async (req, res) => {
   try {
     const result = await pool.query(
@@ -54,14 +66,11 @@ app.get("/api/alarms", async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error("Error fetching all alarms:", err);
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to fetch alarms." });
+    res.status(500).json({ success: false, message: "Failed to fetch alarms." });
   }
 });
 
 // Get next upcoming alarm (for ESP device primarily)
-// Modified: Also returns the timezone
 app.get("/api/next-alarm", async (req, res) => {
   try {
     const now = new Date();
@@ -88,31 +97,28 @@ app.get("/api/next-alarm", async (req, res) => {
     }
 
     // Return the next alarm or an empty object if no alarms are set
-    res.json(result.rows[0] || {});
+    res.json(result.rows[0]  {});
   } catch (err) {
     console.error("Error fetching next alarm:", err);
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to fetch next alarm." });
+    res.status(500).json({ success: false, message: "Failed to fetch next alarm." });
   }
 });
 
 // Add a new alarm or update an existing one
-// Modified: Accepts 'id' for updates and 'timezone'
 app.post("/api/set-alarm", async (req, res) => {
   const { id, alarm_time, timezone } = req.body; // 'id' is optional for new alarms
-
-  if (!alarm_time || !/^([01]\d|2[0-3]):([0-5]\d)$/.test(alarm_time)) {
+  
+  if (!alarm_time  !/^([01]\d|2[0-3]):([0-5]\d)$/.test(alarm_time)) {
     return res
       .status(400)
       .json({ success: false, message: "Invalid alarm time format (HH:MM)." });
   }
 
   // Basic validation for timezone
-  if (typeof timezone === "undefined" || isNaN(parseFloat(timezone))) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Invalid timezone provided." });
+  if (typeof timezone === 'undefined'  isNaN(parseFloat(timezone))) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid timezone provided." });
   }
 
   try {
@@ -132,15 +138,9 @@ app.post("/api/set-alarm", async (req, res) => {
       );
       alarm = queryResult.rows[0];
       if (!alarm) {
-        return res
-          .status(404)
-          .json({ success: false, message: "Alarm not found." });
+          return res.status(404).json({ success: false, message: "Alarm not found." });
       }
-      res.json({
-        success: true,
-        message: "Alarm updated successfully!",
-        alarm: alarm,
-      });
+      res.json({ success: true, message: "Alarm updated successfully!", alarm: alarm });
     } else {
       // Insert new alarm
       queryResult = await pool.query(
@@ -152,13 +152,7 @@ app.post("/api/set-alarm", async (req, res) => {
         [alarm_time, timezone]
       );
       alarm = queryResult.rows[0]; // Get the newly created alarm with its ID
-      res
-        .status(201)
-        .json({
-          success: true,
-          message: "Alarm added successfully!",
-          alarm: alarm,
-        });
+      res.status(201).json({ success: true, message: "Alarm added successfully!", alarm: alarm });
     }
   } catch (err) {
     console.error("Error setting/updating alarm:", err);
@@ -167,52 +161,37 @@ app.post("/api/set-alarm", async (req, res) => {
 });
 
 // Delete an alarm by ID (soft delete by setting active to false)
-// Modified: Renamed from /reset-alarm to /delete-alarm, takes ID from body
 app.post("/api/delete-alarm", async (req, res) => {
   const { id } = req.body; // Expecting id in the request body
   if (!id) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Alarm ID is required for deletion." });
+      return res.status(400).json({ success: false, message: "Alarm ID is required for deletion." });
   }
   try {
-    const result = await pool.query(
-      "UPDATE alarm_settings SET active = FALSE WHERE id = $1 RETURNING id",
-      [id]
-    );
+    const result = await pool.query("UPDATE alarm_settings SET active = FALSE WHERE id = $1 RETURNING id", [
+      id,
+    ]);
     if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Alarm not found." });
+        return res.status(404).json({ success: false, message: "Alarm not found." });
     }
     res.json({ success: true, message: "Alarm deleted successfully." });
   } catch (err) {
     console.error("Error deleting alarm:", err);
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to delete alarm." });
+    res.status(500).json({ success: false, message: "Failed to delete alarm." });
   }
 });
 
 // From ESP32 — mark current alarm as stopped (still uses ID from params)
-// Note: This endpoint's functionality is similar to deleting but assumes the ESP specifically calls it.
-// It might be useful to keep it distinct from a full frontend 'delete'
 app.post("/api/alarm-stopped/:id", async (req, res) => {
   const { id } = req.params;
   if (!id) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Alarm ID is required." });
+      return res.status(400).json({ success: false, message: "Alarm ID is required." });
   }
   try {
-    const result = await pool.query(
-      "UPDATE alarm_settings SET active = FALSE WHERE id = $1 RETURNING id",
-      [id]
-    );
+    const result = await pool.query("UPDATE alarm_settings SET active = FALSE WHERE id = $1 RETURNING id", [
+      id,
+    ]);
     if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Alarm not found." });
+        return res.status(404).json({ success: false, message: "Alarm not found." });
     }
     res.json({ success: true, message: "Alarm stopped (deactivated)." });
   } catch (err) {
